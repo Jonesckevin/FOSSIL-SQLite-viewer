@@ -1,0 +1,30 @@
+# Uploaded databases
+upload/*
+!upload/.gitkeep
+
+# Exports and WAL backups
+exports/*
+!exports/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE / Editor
+*.code-workspace
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Docker
+.env
+
+# App state
+.app_state.json

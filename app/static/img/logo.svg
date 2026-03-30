@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Database cylinder -->
+  <ellipse cx="28" cy="18" rx="18" ry="7" fill="none" stroke="currentColor" stroke-width="2.5"/>
+  <path d="M10 18 v20 c0 3.87 8.06 7 18 7 s18-3.13 18-7 V18" fill="none" stroke="currentColor" stroke-width="2.5"/>
+  <path d="M10 28 c0 3.87 8.06 7 18 7 s18-3.13 18-7" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+  <path d="M10 38 c0 3.87 8.06 7 18 7 s18-3.13 18-7" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+  <!-- Magnifying glass -->
+  <circle cx="47" cy="44" r="10" fill="none" stroke="currentColor" stroke-width="2.5"/>
+  <line x1="54" y1="51" x2="62" y2="59" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  <!-- Scan lines inside magnifier -->
+  <line x1="41" y1="42" x2="53" y2="42" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+  <line x1="41" y1="46" x2="53" y2="46" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+</svg>

@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="auto">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="FOSSIL — Forensic Observation of SQLite Structures, Inspection & Logging">
+    <title>FOSSIL — Forensic SQLite Viewer</title>
+    <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+    <link href="/static/vendor/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/vendor/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- ═══════════════ HEADER BAR ═══════════════ -->
+<header id="app-header" class="d-flex align-items-center px-3">
+    <!-- Left: Logo + Title -->
+    <div class="header-left d-flex align-items-center gap-2">
+        <img src="/static/img/logo.svg" alt="FOSSIL" class="header-logo" width="28" height="28">
+        <span class="header-title fw-semibold">FOSSIL</span>
+    </div>
+
+    <!-- Center: DB Statistics -->
+    <div class="header-center flex-grow-1 text-center">
+        <span id="db-stats" class="text-muted small">No database loaded</span>
+    </div>
+
+    <!-- Right: DB Controls -->
+    <div class="header-right d-flex align-items-center gap-2">
+        <button id="btn-reset" class="btn btn-sm btn-outline-secondary" title="Reset all settings">
+            <i class="bi bi-arrow-counterclockwise"></i>
+        </button>
+        <div class="vr mx-1"></div>
+        <label class="btn btn-sm btn-outline-primary" title="Upload database" id="btn-upload-label">
+            <i class="bi bi-upload"></i>
+            <input type="file" id="file-upload" class="d-none" accept=".db,.sqlite,.sqlite3,.db3,.wal">
+        </label>
+        <button id="btn-delete-db" class="btn btn-sm btn-outline-danger" title="Delete selected database" disabled>
+            <i class="bi bi-trash"></i>
+        </button>
+        <select id="db-selector" class="form-select form-select-sm db-selector">
+            <option value="">-- Select Database --</option>
+        </select>
+        <button id="btn-open-db" class="btn btn-sm btn-primary" disabled>
+            <i class="bi bi-folder2-open"></i> Open
+        </button>
+        <div class="vr mx-1"></div>
+        <button id="btn-theme" class="btn btn-sm btn-outline-secondary" title="Toggle theme">
+            <i class="bi bi-circle-half"></i>
+        </button>
+    </div>
+</header>
+
+<!-- ═══════════════ MAIN LAYOUT ═══════════════ -->
+<div id="app-layout">
+    <!-- LEFT SIDEBAR: Table Tree -->
+    <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header d-flex align-items-center justify-content-between px-2 py-1">
+            <span class="fw-semibold small">Tables</span>
+            <button id="btn-collapse-sidebar" class="btn btn-sm btn-link p-0" title="Collapse sidebar">
+                <i class="bi bi-chevron-left"></i>
+            </button>
+        </div>
+        <div id="table-tree" class="table-tree"></div>
+    </aside>
+
+    <!-- Sidebar resize handle -->
+    <div id="sidebar-resize" class="resize-handle-v"></div>
+
+    <!-- RIGHT CONTENT AREA -->
+    <main id="content-area">
+        <!-- TAB BAR for main content vs WAL browser -->
+        <ul class="nav nav-tabs content-tabs px-2 pt-1" id="mainTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active small py-1 px-3" id="tab-data" data-bs-toggle="tab"
+                        data-bs-target="#pane-data" type="button" role="tab">
+                    <i class="bi bi-table"></i> Data
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link small py-1 px-3" id="tab-wal" data-bs-toggle="tab"
+                        data-bs-target="#pane-wal" type="button" role="tab">
+                    <i class="bi bi-journal-code"></i> WAL Browser
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link small py-1 px-3" id="tab-exports" data-bs-toggle="tab"
+                        data-bs-target="#pane-exports" type="button" role="tab">
+                    <i class="bi bi-download"></i> Exports
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content flex-grow-1 d-flex flex-column overflow-hidden">
+            <!-- ══════ DATA TAB ══════ -->
+            <div class="tab-pane fade show active flex-grow-1 d-flex flex-column" id="pane-data" role="tabpanel">
+                <!-- Search / SQL Query Bar -->
+                <div id="search-bar" class="d-flex align-items-center gap-2 px-2 py-1 border-bottom">
+                    <!-- Normal search controls -->
+                    <div id="search-controls" class="d-flex align-items-center gap-2 flex-grow-1">
+                        <i class="bi bi-search text-muted"></i>
+                        <input type="text" id="search-input" class="form-control form-control-sm"
+                               placeholder="Search...">
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" id="search-regex">
+                            <label class="form-check-label small" for="search-regex">Regex</label>
+                        </div>
+                        <select id="search-table" class="form-select form-select-sm search-filter-select">
+                            <option value="">All Tables</option>
+                        </select>
+                        <select id="search-column" class="form-select form-select-sm search-filter-select">
+                            <option value="">All Columns</option>
+                        </select>
+                        <button id="btn-search-clear" class="btn btn-sm btn-outline-secondary" title="Clear search">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <!-- SQL mode toggle -->
+                    <div class="vr"></div>
+                    <button id="btn-sql-mode" class="btn btn-sm btn-outline-info" title="Toggle SQL Query mode">
+                        <i class="bi bi-code-slash"></i> SQL
+                    </button>
+                </div>
+
+                <!-- SQL Query Panel (hidden by default) -->
+                <div id="sql-query-panel" class="d-none border-bottom">
+                    <div class="d-flex flex-column gap-1 p-2">
+                        <!-- Insert helpers row -->
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <select id="sql-insert-table" class="form-select form-select-sm" style="max-width:180px" title="Insert table name">
+                                <option value="">+ Table…</option>
+                            </select>
+                            <select id="sql-insert-column" class="form-select form-select-sm" style="max-width:180px" title="Insert column name">
+                                <option value="">+ Column…</option>
+                            </select>
+                            <button id="btn-sql-help" class="btn btn-sm btn-outline-secondary" title="SQL Help" data-bs-toggle="modal" data-bs-target="#sqlHelpModal">
+                                <i class="bi bi-question-circle"></i> Help
+                            </button>
+                        </div>
+                        <!-- Editor with syntax highlighting -->
+                        <div class="d-flex gap-2 align-items-start">
+                            <div class="sql-editor-wrap flex-grow-1 position-relative">
+                                <div id="sql-highlight" class="sql-highlight font-monospace" aria-hidden="true"></div>
+                                <textarea id="sql-editor" class="form-control form-control-sm sql-editor font-monospace"
+                                          rows="3" placeholder="SELECT * FROM table_name" spellcheck="false" autocomplete="off"></textarea>
+                                <div id="sql-autocomplete" class="sql-autocomplete d-none"></div>
+                            </div>
+                            <div class="d-flex flex-column gap-1">
+                                <button id="btn-sql-execute" class="btn btn-sm btn-primary" title="Execute (Ctrl+Enter)">
+                                    <i class="bi bi-play-fill"></i> Run
+                                </button>
+                                <button id="btn-sql-save" class="btn btn-sm btn-outline-secondary" title="Save query">
+                                    <i class="bi bi-bookmark-plus"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <select id="sql-saved-select" class="form-select form-select-sm" style="max-width:220px">
+                                <option value="">— Saved Queries —</option>
+                            </select>
+                            <button id="btn-sql-delete-query" class="btn btn-sm btn-outline-danger" title="Delete saved query" disabled>
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            <button id="btn-sql-export-queries" class="btn btn-sm btn-outline-secondary" title="Export all saved queries">
+                                <i class="bi bi-download"></i> Export Queries
+                            </button>
+                            <span id="sql-status" class="sql-status text-muted small ms-auto"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Grid (top part of split) -->
+                <div id="grid-container" class="flex-grow-1 overflow-hidden">
+                    <div id="data-grid" class="data-grid">
+                        <div id="grid-header" class="grid-header"></div>
+                        <div id="grid-body" class="grid-body"></div>
+                    </div>
+                    <div id="grid-empty" class="grid-empty d-flex align-items-center justify-content-center">
+                        <div class="text-center text-muted">
+                            <i class="bi bi-database" style="font-size:3rem"></i>
+                            <p class="mt-2">Select a table to view data</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pagination -->
+                <div id="pagination-bar" class="d-flex align-items-center justify-content-between px-2 py-1 border-top small">
+                    <div class="d-flex align-items-center gap-2">
+                        <span id="row-info" class="text-muted">0 rows</span>
+                        <div class="vr"></div>
+                        <label class="text-muted mb-0">Rows:</label>
+                        <select id="page-size" class="form-select form-select-sm page-size-select">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100" selected>100</option>
+                            <option value="500">500</option>
+                            <option value="1000">1000</option>
+                        </select>
+                    </div>
+                    <div class="d-flex align-items-center gap-1">
+                        <button id="btn-page-first" class="btn btn-sm btn-outline-secondary" disabled>
+                            <i class="bi bi-chevron-double-left"></i>
+                        </button>
+                        <button id="btn-page-prev" class="btn btn-sm btn-outline-secondary" disabled>
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <span id="page-info" class="mx-2 text-muted">Page 0 / 0</span>
+                        <button id="btn-page-next" class="btn btn-sm btn-outline-secondary" disabled>
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button id="btn-page-last" class="btn btn-sm btn-outline-secondary" disabled>
+                            <i class="bi bi-chevron-double-right"></i>
+                        </button>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span id="selection-info" class="text-muted"></span>
+                    </div>
+                </div>
+
+                <!-- Horizontal resize handle between grid and row detail -->
+                <div id="detail-resize" class="resize-handle-h"></div>
+
+                <!-- Row Detail (bottom part of split) -->
+                <div id="row-detail-panel" class="row-detail-panel">
+                    <div class="row-detail-header d-flex align-items-center justify-content-between px-2 py-1">
+                        <span class="fw-semibold small">Row Detail</span>
+                        <div class="d-flex gap-1">
+                            <button id="btn-copy-json" class="btn btn-sm btn-outline-secondary" title="Copy as JSON">
+                                <i class="bi bi-braces"></i>
+                            </button>
+                            <button id="btn-copy-csv" class="btn btn-sm btn-outline-secondary" title="Copy as CSV">
+                                <i class="bi bi-filetype-csv"></i>
+                            </button>
+                            <button id="btn-copy-text" class="btn btn-sm btn-outline-secondary" title="Copy as text">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="row-detail-body" class="row-detail-body">
+                        <div class="text-center text-muted py-4 small">Click a row to view details</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════ WAL TAB ══════ -->
+            <div class="tab-pane fade flex-grow-1 d-flex flex-column overflow-hidden" id="pane-wal" role="tabpanel">
+                <div id="wal-content" class="flex-grow-1 d-flex flex-column overflow-hidden p-2">
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-journal-code" style="font-size:3rem"></i>
+                        <p class="mt-2">No WAL data loaded</p>
+                        <button id="btn-load-wal" class="btn btn-sm btn-outline-primary mt-1">
+                            <i class="bi bi-upload"></i> Load WAL File
+                        </button>
+                        <input type="file" id="wal-file-upload" class="d-none" accept=".wal">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════ EXPORTS TAB ══════ -->
+            <div class="tab-pane fade flex-grow-1 d-flex flex-column overflow-hidden" id="pane-exports" role="tabpanel">
+                <div id="exports-content" class="flex-grow-1 overflow-auto p-2">
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-download" style="font-size:3rem"></i>
+                        <p class="mt-2">No exports yet</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ═══════════════ MODALS ═══════════════ -->
+
+<!-- BLOB Viewer Modal -->
+<div class="modal fade" id="blobModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-file-binary"></i> BLOB Viewer</h6>
+                <div class="d-flex align-items-center gap-2 ms-auto me-2">
+                    <span id="blob-info" class="badge bg-secondary small"></span>
+                    <button id="btn-blob-save" class="btn btn-sm btn-outline-primary" title="Save to exports">
+                        <i class="bi bi-download"></i> Save
+                    </button>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <ul class="nav nav-tabs px-3 pt-2" id="blobTabs" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active small" id="blob-tab-hex" data-bs-toggle="tab"
+                                data-bs-target="#blob-pane-hex" type="button">Hex Dump</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link small" id="blob-tab-text" data-bs-toggle="tab"
+                                data-bs-target="#blob-pane-text" type="button">Text</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link small" id="blob-tab-image" data-bs-toggle="tab"
+                                data-bs-target="#blob-pane-image" type="button">Image</button>
+                    </li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active p-3" id="blob-pane-hex">
+                        <div class="d-flex gap-1 mb-2">
+                            <button class="btn btn-sm btn-outline-secondary" id="btn-copy-hex-raw">Copy Raw</button>
+                            <button class="btn btn-sm btn-outline-secondary" id="btn-copy-hex-fmt">Copy Formatted</button>
+                            <button class="btn btn-sm btn-outline-secondary" id="btn-copy-hex-b64">Copy Base64</button>
+                        </div>
+                        <pre id="blob-hex-content" class="blob-hex-content"></pre>
+                    </div>
+                    <div class="tab-pane fade p-3" id="blob-pane-text">
+                        <pre id="blob-text-content" class="blob-text-content"></pre>
+                    </div>
+                    <div class="tab-pane fade p-3 text-center" id="blob-pane-image">
+                        <div class="d-flex gap-1 mb-2 justify-content-center">
+                            <button class="btn btn-sm btn-outline-secondary blob-zoom" data-zoom="fit">Fit</button>
+                            <button class="btn btn-sm btn-outline-secondary blob-zoom" data-zoom="100">100%</button>
+                            <button class="btn btn-sm btn-outline-secondary blob-zoom" data-zoom="in">
+                                <i class="bi bi-zoom-in"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary blob-zoom" data-zoom="out">
+                                <i class="bi bi-zoom-out"></i>
+                            </button>
+                        </div>
+                        <div id="blob-image-container" class="blob-image-container">
+                            <img id="blob-image-preview" alt="BLOB preview">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title text-danger"><i class="bi bi-exclamation-triangle"></i> Confirm Delete</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">Delete <strong id="delete-db-name"></strong>? This cannot be undone.</p>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-danger" id="btn-confirm-delete">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reset Confirmation Modal -->
+<div class="modal fade" id="resetModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-arrow-counterclockwise"></i> Reset Settings</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">Reset all settings to defaults? This will clear column visibility, search filters, and WAL merge state.</p>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" id="btn-confirm-reset">Reset</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Decode Modal -->
+<div class="modal fade" id="decodeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-clock-history"></i> Decode Value</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <label class="form-label small">Value</label>
+                    <input type="text" id="decode-input" class="form-control form-control-sm">
+                </div>
+                <ul class="nav nav-pills nav-fill mb-2" id="decodeTabs">
+                    <li class="nav-item">
+                        <button class="nav-link active small" data-decode="timestamp">Timestamps</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link small" data-decode="base64">Base64</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link small" data-decode="hex">Hex</button>
+                    </li>
+                </ul>
+                <div id="decode-results" class="decode-results"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- WAL Technical Details Modal -->
+<div class="modal fade" id="walDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-info-circle"></i> WAL Technical Details</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="wal-detail-body"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Context Menu -->
+<div id="context-menu" class="context-menu" style="display:none">
+    <div class="context-menu-item" data-action="copy-cell"><i class="bi bi-clipboard"></i> Copy Cell</div>
+    <div class="context-menu-item" data-action="copy-row-csv"><i class="bi bi-filetype-csv"></i> Copy Row as CSV</div>
+    <div class="context-menu-item" data-action="copy-row-json"><i class="bi bi-braces"></i> Copy Row as JSON</div>
+    <div class="context-menu-item" data-action="copy-column"><i class="bi bi-layout-three-columns"></i> Copy Column</div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" data-action="export-selected"><i class="bi bi-download"></i> Export Selected as CSV</div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" data-action="view-detail"><i class="bi bi-eye"></i> View Row Detail</div>
+    <div class="context-menu-item d-none" data-action="view-blob"><i class="bi bi-file-binary"></i> View BLOB</div>
+    <div class="context-menu-item" data-action="decode-value"><i class="bi bi-clock-history"></i> Decode Value</div>
+</div>
+
+<!-- Upload progress overlay -->
+<div id="upload-overlay" class="upload-overlay" style="display:none">
+    <div class="upload-progress-box">
+        <div class="spinner-border text-primary mb-2" role="status"></div>
+        <div id="upload-status">Uploading...</div>
+        <div class="progress mt-2" style="width:200px">
+            <div id="upload-progress-bar" class="progress-bar" role="progressbar" style="width:0%"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+
+<!-- ═══════════════ SQL HELP MODAL ═══════════════ -->
+<div class="modal fade" id="sqlHelpModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-question-circle"></i> SQL Query Help</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body sql-help-body">
+                <p class="text-muted small">This tool runs <strong>read-only</strong> queries. Only SELECT, PRAGMA, EXPLAIN, and WITH are allowed.</p>
+
+                <h6 class="mt-3">Basic Queries</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Query</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>SELECT * FROM table_name</code></td><td>Get all rows and columns</td></tr>
+                        <tr><td><code>SELECT col1, col2 FROM t</code></td><td>Get specific columns</td></tr>
+                        <tr><td><code>SELECT DISTINCT col FROM t</code></td><td>Unique values only</td></tr>
+                        <tr><td><code>SELECT COUNT(*) FROM t</code></td><td>Count total rows</td></tr>
+                        <tr><td><code>SELECT * FROM t LIMIT 10</code></td><td>Limit result rows</td></tr>
+                        <tr><td><code>SELECT * FROM t LIMIT 10 OFFSET 20</code></td><td>Skip first 20 rows, return next 10</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>WHERE — Filtering Rows</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Operator</th><th>Example</th><th>Meaning</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>=</code></td><td><code>WHERE name = 'Alice'</code></td><td>Equals</td></tr>
+                        <tr><td><code>!=</code> or <code>&lt;&gt;</code></td><td><code>WHERE age != 25</code></td><td>Not equal</td></tr>
+                        <tr><td><code>&lt; &gt; &lt;= &gt;=</code></td><td><code>WHERE age >= 18</code></td><td>Comparison</td></tr>
+                        <tr><td><code>BETWEEN</code></td><td><code>WHERE id BETWEEN 10 AND 50</code></td><td>Range (inclusive)</td></tr>
+                        <tr><td><code>IN</code></td><td><code>WHERE status IN ('active','pending')</code></td><td>Match any in list</td></tr>
+                        <tr><td><code>IS NULL</code></td><td><code>WHERE email IS NULL</code></td><td>Value is NULL</td></tr>
+                        <tr><td><code>IS NOT NULL</code></td><td><code>WHERE email IS NOT NULL</code></td><td>Value is not NULL</td></tr>
+                        <tr><td><code>AND / OR</code></td><td><code>WHERE age > 18 AND status = 'active'</code></td><td>Combine conditions</td></tr>
+                        <tr><td><code>NOT</code></td><td><code>WHERE NOT status = 'deleted'</code></td><td>Negate condition</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>LIKE — Wildcards &amp; Pattern Matching</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Pattern</th><th>Example</th><th>Meaning</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>%</code></td><td><code>WHERE name LIKE '%smith%'</code></td><td>Matches any sequence of characters</td></tr>
+                        <tr><td><code>_</code></td><td><code>WHERE code LIKE 'A_C'</code></td><td>Matches exactly one character</td></tr>
+                        <tr><td><code>LIKE 'abc%'</code></td><td><code>WHERE name LIKE 'John%'</code></td><td>Starts with "John"</td></tr>
+                        <tr><td><code>LIKE '%xyz'</code></td><td><code>WHERE file LIKE '%.pdf'</code></td><td>Ends with ".pdf"</td></tr>
+                        <tr><td><code>GLOB</code></td><td><code>WHERE path GLOB '*/logs/*'</code></td><td>Case-sensitive, uses <code>*</code> and <code>?</code></td></tr>
+                    </tbody>
+                </table>
+
+                <h6>ORDER BY &amp; GROUP BY</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Clause</th><th>Example</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>ORDER BY</code></td><td><code>ORDER BY created_at DESC</code></td><td>Sort results (ASC or DESC)</td></tr>
+                        <tr><td><code>GROUP BY</code></td><td><code>SELECT type, COUNT(*) FROM t GROUP BY type</code></td><td>Aggregate by groups</td></tr>
+                        <tr><td><code>HAVING</code></td><td><code>GROUP BY type HAVING COUNT(*) > 5</code></td><td>Filter groups</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>JOIN — Combining Tables</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Type</th><th>Example</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>INNER JOIN</code></td><td><code>SELECT * FROM a JOIN b ON a.id = b.a_id</code></td><td>Only matching rows from both tables</td></tr>
+                        <tr><td><code>LEFT JOIN</code></td><td><code>SELECT * FROM a LEFT JOIN b ON a.id = b.a_id</code></td><td>All rows from left + matches from right</td></tr>
+                        <tr><td><code>CROSS JOIN</code></td><td><code>SELECT * FROM a CROSS JOIN b</code></td><td>All combinations (cartesian product)</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>Aggregate Functions</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Function</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>COUNT(*)</code></td><td>Number of rows</td></tr>
+                        <tr><td><code>SUM(col)</code></td><td>Sum of values</td></tr>
+                        <tr><td><code>AVG(col)</code></td><td>Average value</td></tr>
+                        <tr><td><code>MIN(col)</code> / <code>MAX(col)</code></td><td>Minimum / maximum value</td></tr>
+                        <tr><td><code>GROUP_CONCAT(col, ',')</code></td><td>Concatenate values into a string</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>Useful SQLite Functions</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Function</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>LENGTH(col)</code></td><td>String length</td></tr>
+                        <tr><td><code>UPPER(col)</code> / <code>LOWER(col)</code></td><td>Case conversion</td></tr>
+                        <tr><td><code>SUBSTR(col, start, len)</code></td><td>Substring extraction</td></tr>
+                        <tr><td><code>REPLACE(col, 'old', 'new')</code></td><td>String replacement (in results only)</td></tr>
+                        <tr><td><code>COALESCE(a, b, c)</code></td><td>First non-NULL value</td></tr>
+                        <tr><td><code>TYPEOF(col)</code></td><td>Data type of a value</td></tr>
+                        <tr><td><code>HEX(col)</code></td><td>Hex representation of BLOB/text</td></tr>
+                        <tr><td><code>datetime(col, 'unixepoch')</code></td><td>Convert Unix timestamp to readable date</td></tr>
+                        <tr><td><code>CAST(col AS INTEGER)</code></td><td>Type conversion</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>PRAGMA — Database Info</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>PRAGMA table_info('table')</code></td><td>Column names and types</td></tr>
+                        <tr><td><code>PRAGMA table_list</code></td><td>List all tables</td></tr>
+                        <tr><td><code>PRAGMA index_list('table')</code></td><td>Indexes on a table</td></tr>
+                        <tr><td><code>PRAGMA database_list</code></td><td>Attached databases</td></tr>
+                        <tr><td><code>PRAGMA integrity_check</code></td><td>Check database integrity</td></tr>
+                        <tr><td><code>PRAGMA journal_mode</code></td><td>Current journal mode</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>Subqueries</h6>
+                <table class="table table-sm table-bordered small">
+                    <thead><tr><th>Example</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>SELECT * FROM t WHERE id IN (SELECT id FROM t2)</code></td><td>Filter with a subquery</td></tr>
+                        <tr><td><code>SELECT *, (SELECT COUNT(*) FROM t2 WHERE t2.ref = t.id) AS cnt FROM t</code></td><td>Scalar subquery</td></tr>
+                        <tr><td><code>WITH cte AS (SELECT ...) SELECT * FROM cte</code></td><td>Common Table Expression (CTE)</td></tr>
+                    </tbody>
+                </table>
+
+                <h6>Tips</h6>
+                <ul class="small">
+                    <li>Use double quotes for table/column names with spaces: <code>"My Table"</code></li>
+                    <li>Use single quotes for string values: <code>'hello'</code></li>
+                    <li>Queries without LIMIT are auto-capped at 500 rows for safety</li>
+                    <li><kbd>Ctrl+Enter</kbd> runs the query from the editor</li>
+                    <li>Use the table/column dropdowns above the editor to insert names</li>
+                    <li>Autocomplete suggestions appear as you type</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════ FOOTER STATUS BAR ═══════════════ -->
+<footer id="app-footer" class="d-flex align-items-center px-3">
+    <span class="footer-version">v1.0</span>
+    <span class="footer-brand">FOSSIL &mdash; Forensic Observation of SQLite Structures, Inspection &amp; Logging</span>
+    <a href="https://github.com/jonesckevin" target="_blank" rel="noopener noreferrer" class="footer-github" title="GitHub">
+        <svg height="14" width="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    </a>
+</footer>
+
+<script src="/static/vendor/bootstrap.bundle.min.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/table-tree.js"></script>
+<script src="/static/js/data-grid.js"></script>
+<script src="/static/js/row-detail.js"></script>
+<script src="/static/js/search.js"></script>
+<script src="/static/js/context-menu.js"></script>
+<script src="/static/js/blob-viewer.js"></script>
+<script src="/static/js/decode.js"></script>
+<script src="/static/js/wal-browser.js"></script>
+<script src="/static/js/export.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+services:
+  sqlite-analyser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sqlite-analyser-webui
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./upload:/app/upload
+      - ./exports:/app/exports
+    restart: unless-stopped
