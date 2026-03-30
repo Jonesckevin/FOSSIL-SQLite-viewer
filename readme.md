@@ -4,6 +4,8 @@
 
 A web-based SQLite database viewer built for investigators and analysts. Upload `.db`, `.sqlite`, or `.wal` files and inspect their contents through an interactive browser UI — no installs required beyond Docker.
 
+![Example Image](./example.png)
+
 ---
 
 ## Features
